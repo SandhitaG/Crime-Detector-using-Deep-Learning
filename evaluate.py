@@ -1,97 +1,69 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
-import os
+import streamlit as st
 import cv2
+import numpy as np
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.image import img_to_array
-from tensorflow.keras.utils import to_categorical
+import tempfile
+import os
 
-# Load the trained model
+st.set_page_config(page_title="Crime Detection", layout="centered")
+st.title("🛡️ Crime Detection System")
+
+# Load model
 model = load_model("crime_detection_model.h5")
 
-# Load test dataset paths
-test_crime_dir = "UCF_Crime_Dataset/Test/Crime"  # Update path if needed
-test_normal_dir = "UCF_Crime_Dataset/Test/Normal"  # Update path if needed
+IMG_SIZE = (128, 128)
 
-# Function to load images and labels
-def load_data(directory, label):
-    data, labels = [], []
-    for filename in os.listdir(directory):
-        img_path = os.path.join(directory, filename)
-        img = cv2.imread(img_path)
-        if img is None:
-            continue
-        img = cv2.resize(img, (64, 64)) / 255.0  # Resize and normalize
-        data.append(img_to_array(img))
-        labels.append(label)
-    return np.array(data), np.array(labels)
+# Prediction function
+def predict_image(img):
+    img = cv2.resize(img, IMG_SIZE)
+    img = img / 255.0
+    img = np.expand_dims(img, axis=0)
+    prediction = model.predict(img)[0][0]
+    return prediction
 
-# Load crime and normal images
-crime_images, crime_labels = load_data(test_crime_dir, 1)  # 1 for Crime
-normal_images, normal_labels = load_data(test_normal_dir, 0)  # 0 for Normal
+def process_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    frame_count = 0
+    crime_detected = False
 
-# Combine data
-X_test = np.vstack((crime_images, normal_images))
-y_test = np.concatenate((crime_labels, normal_labels))
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame_count > 30:
+            break
+        prediction = predict_image(frame)
+        if prediction >= 0.5:
+            crime_detected = True
+            break
+        frame_count += 1
+    cap.release()
+    return crime_detected
 
-# Predict using the model
-y_pred_probs = model.predict(X_test)
-y_pred = (y_pred_probs > 0.5).astype(int).flatten()  # Convert probabilities to binary values
+# File uploader
+file = st.file_uploader("Upload Image or Video", type=["jpg", "jpeg", "png", "mp4"])
 
-# Calculate metrics
-accuracy = accuracy_score(y_test, y_pred) * 100
-precision = precision_score(y_test, y_pred) * 100
-recall = recall_score(y_test, y_pred) * 100
-f1 = f1_score(y_test, y_pred) * 100
+def display_result(prediction):
+    if prediction >= 0.5:
+        st.markdown("<h3 style='color:red;'>🔴 Crime Detected</h3>", unsafe_allow_html=True)
+    else:
+        st.markdown("<h3 style='color:green;'>🟢 No Crime Detected</h3>", unsafe_allow_html=True)
 
-# Print metrics
-print(f"🔹 Accuracy: {accuracy:.2f}%")
-print(f"🔹 Precision: {precision:.2f}%")
-print(f"🔹 Recall: {recall:.2f}%")
-print(f"🔹 F1 Score: {f1:.2f}%")
+if file is not None:
+    file_ext = file.name.split('.')[-1].lower()
+    
+    if file_ext in ['jpg', 'jpeg', 'png']:
+        file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
+        image = cv2.imdecode(file_bytes, 1)
+        st.image(image, caption="Uploaded Image", use_container_width=True)
+        pred = predict_image(image)
+        display_result(pred)
 
-# Confusion matrix
-cm = confusion_matrix(y_test, y_pred)
-tn, fp, fn, tp = cm.ravel()  # Extract TP, FP, FN, TN
-
-print(f"\n🔹 Confusion Matrix Values:")
-print(f"✅ True Positives (TP): {tp}")
-print(f"❌ False Positives (FP): {fp}")
-print(f"❌ False Negatives (FN): {fn}")
-print(f"✅ True Negatives (TN): {tn}")
-
-# Plot confusion matrix as heatmap
-plt.figure(figsize=(6, 5))
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Normal", "Crime"], yticklabels=["Normal", "Crime"])
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
-plt.title("Confusion Matrix")
-plt.show()
-
-# ROC Curve
-fpr, tpr, _ = roc_curve(y_test, y_pred_probs)
-roc_auc = auc(fpr, tpr)
-
-plt.figure(figsize=(6, 5))
-plt.plot(fpr, tpr, color="blue", lw=2, label=f"ROC curve (AUC = {roc_auc:.2f})")
-plt.plot([0, 1], [0, 1], color="gray", linestyle="--")  # Random classifier line
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.title("Receiver Operating Characteristic (ROC) Curve")
-plt.legend(loc="lower right")
-plt.show()
-
-# Class distribution plot for training dataset
-train_crime_count = len(os.listdir("UCF_Crime_Dataset/Train/Crime"))
-train_normal_count = len(os.listdir("UCF_Crime_Dataset/Train/Normal"))
-
-plt.figure(figsize=(6, 5))
-plt.bar(["Normal", "Crime"], [train_normal_count, train_crime_count], color=["green", "red"])
-plt.xlabel("Class")
-plt.ylabel("Number of Images")
-plt.title("Training Dataset Class Distribution")
-plt.show()
+    elif file_ext == 'mp4':
+        tfile = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+        tfile.write(file.read())
+        result = process_video(tfile.name)
+        st.video(tfile.name)
+        if result:
+            st.markdown("<h3 style='color:red;'>🔴 Crime Detected</h3>", unsafe_allow_html=True)
+        else:
+            st.markdown("<h3 style='color:green;'>🟢 No Crime Detected</h3>", unsafe_allow_html=True)
+        os.unlink(tfile.name)
