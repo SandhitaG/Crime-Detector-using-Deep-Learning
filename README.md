@@ -1,5 +1,6 @@
 # Crime Detection using Deep Learning
-![image](https://github.com/user-attachments/assets/06127c7f-be0c-4e0e-a2c2-7d27f6bb8937)
+![image](https://github.com/user-attachments/assets/d903859c-2d3c-42d8-ac8d-221adea09b7e)
+
 
 
 Developed a CNN-based model to analyze and classify surveillance images,videos,enabling automated identification of suspicious or criminal activities with high accuracy.
